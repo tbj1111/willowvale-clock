@@ -65,6 +65,22 @@ li .c{grid-column:2 / 4;font-size:13px;color:var(--muted)}
 #gbtn{min-height:44px;display:flex;justify-content:center}
 .err{color:var(--bad);font-size:14px;min-height:1.5em;text-align:center}
 .center{text-align:center}
+fieldset{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;min-width:0}
+legend{font-weight:600;font-size:15px;padding:0;margin-bottom:8px}
+legend .hint{font-weight:400}
+.qgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.q{display:flex;flex-direction:column;gap:4px;min-width:0}
+.q span{font-size:13px;color:var(--muted)}
+.q input,.textin{font:500 22px var(--f-num);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;min-width:0;text-align:center}
+.textin{font:16px var(--f-body);text-align:left}
+.q input:focus-visible,.textin:focus-visible{outline:3px solid var(--primary);outline-offset:1px}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.seg label{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:15px;cursor:pointer;background:var(--bg)}
+.seg input{accent-color:var(--primary);width:18px;height:18px;flex:none}
+.seg label:has(input:checked){border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary)}
+.photo{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.photo img{width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.photo .btn{width:auto;padding:12px 16px;font-size:16px}
 [hidden]{display:none!important}
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -91,6 +107,48 @@ li .c{grid-column:2 / 4;font-size:13px;color:var(--muted)}
   </section>
 
   <section id="v-main" hidden style="display:flex;flex-direction:column;gap:20px">
+    <form class="card" id="stockcard" hidden novalidate>
+      <div class="state"><span class="label">Fridge stock</span><span class="big">Stock count</span></div>
+      <div class="seg" role="radiogroup" aria-label="What are you counting?">
+        <label><input type="radio" name="stype" value="delivery" id="st-del"> A delivery arrived</label>
+        <label><input type="radio" name="stype" value="check" id="st-chk" checked> Stock check only</label>
+      </div>
+      <div class="seg" role="radiogroup" aria-label="When are you counting?">
+        <label><input type="radio" name="swhen" value="start" id="sw-start"> Before first treatment</label>
+        <label><input type="radio" name="swhen" value="end" id="sw-end"> After last treatment</label>
+      </div>
+      <fieldset>
+        <legend>In the fridge now <span class="hint">(don't count a new delivery here)</span></legend>
+        <div class="qgrid">
+          <label class="q"><span>Sodium Ascorbate 30g</span><input id="f-sa" type="number" inputmode="decimal" min="0" step="0.5" placeholder="0"></label>
+          <label class="q"><span>Glutathione 1g</span><input id="f-glut" type="number" inputmode="decimal" min="0" step="0.5" placeholder="0"></label>
+        </div>
+      </fieldset>
+      <div id="delfields" hidden style="display:flex;flex-direction:column;gap:14px">
+        <fieldset>
+          <legend>Bottles in the delivery <span class="hint">(count them)</span></legend>
+          <div class="qgrid">
+            <label class="q"><span>Sodium Ascorbate 30g</span><input id="a-sa" type="number" inputmode="decimal" min="0" step="1" placeholder="0"></label>
+            <label class="q"><span>Glutathione 1g</span><input id="a-glut" type="number" inputmode="decimal" min="0" step="1" placeholder="0"></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Bottles listed on the shipping note</legend>
+          <div class="qgrid">
+            <label class="q"><span>Sodium Ascorbate 30g</span><input id="n-sa" type="number" inputmode="decimal" min="0" step="1" placeholder="0"></label>
+            <label class="q"><span>Glutathione 1g</span><input id="n-glut" type="number" inputmode="decimal" min="0" step="1" placeholder="0"></label>
+          </div>
+        </fieldset>
+        <div class="photo">
+          <img id="s-prev" alt="Shipping note photo" hidden>
+          <label class="btn" for="s-photo" id="s-photo-btn">Photo of shipping note</label>
+          <input id="s-photo" type="file" accept="image/*" capture="environment" hidden>
+        </div>
+      </div>
+      <input id="s-note" class="textin" type="text" placeholder="Note (optional)" autocomplete="off">
+      <button class="btn primary" id="s-save" type="submit">Save count</button>
+      <div class="msg" id="smsg" role="status" hidden></div>
+    </form>
     <div class="card">
       <div class="state" id="state"><span class="label" id="state-label">Right now</span><span class="big" id="state-big">–</span></div>
       <div class="clocknow" id="now"></div>
@@ -118,7 +176,15 @@ try{
 }catch{}
 function scanFresh(){ let t = 0; try{ t = Number(sessionStorage.getItem(SCAN_KEY)) || 0; }catch{} return Date.now() - t < SCAN_MS; }
 function clearScan(){ try{ sessionStorage.removeItem(SCAN_KEY); }catch{} }
-function showScanState(){ const ok = scanFresh(); $("#btns").hidden = !ok; $("#scanfirst").hidden = ok; }
+// The fridge QR opens the app with ?stock=1. The stock form shows for 30 minutes after that scan.
+const STOCK_KEY = "wvc-stock", STOCK_MS = 30 * 60 * 1000;
+try{
+  const q = new URLSearchParams(location.search);
+  if(q.get("stock") === "1"){ sessionStorage.setItem(STOCK_KEY, String(Date.now())); history.replaceState(null, "", location.pathname); }
+}catch{}
+function stockFresh(){ let t = 0; try{ t = Number(sessionStorage.getItem(STOCK_KEY)) || 0; }catch{} return Date.now() - t < STOCK_MS; }
+function clearStock(){ try{ sessionStorage.removeItem(STOCK_KEY); }catch{} }
+function showScanState(){ const ok = scanFresh(); $("#btns").hidden = !ok; $("#scanfirst").hidden = ok || stockFresh(); $("#stockcard").hidden = !stockFresh() && $("#smsg").hidden; }
 setInterval(showScanState, 20000);
 
 function show(v){ ["loading","signin","pick","main"].forEach(x => $("#v-"+x).hidden = x !== v); }
@@ -223,6 +289,56 @@ async function clock(dir){
   }catch{ setMsg("Not saved. Check your internet and tap again.","bad"); }
   finally{ busy(false); }
 }
+/* ---------- stock count ---------- */
+let photoData = null;
+function sMsg(text, kind){ const m=$("#smsg"); if(!text){ m.hidden=true; return; } m.textContent=text; m.className="msg "+(kind||"ok"); m.hidden=false; }
+function syncType(){ $("#delfields").hidden = !$("#st-del").checked; }
+document.querySelectorAll('input[name=stype]').forEach(r => r.addEventListener("change", syncType));
+(new Date().getHours() < 12 ? $("#sw-start") : $("#sw-end")).checked = true;
+function shrinkPhoto(file){
+  return new Promise((res, rej) => {
+    const img = new Image(), u = URL.createObjectURL(file);
+    img.onload = () => { const s = Math.min(1, 1600 / Math.max(img.width, img.height)); const c = document.createElement("canvas");
+      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s); c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(u); res(c.toDataURL("image/jpeg", 0.8)); };
+    img.onerror = () => { URL.revokeObjectURL(u); rej(new Error("photo")); };
+    img.src = u;
+  });
+}
+$("#s-photo").addEventListener("change", async e => {
+  const f = e.target.files[0]; if(!f) return;
+  try{ photoData = await shrinkPhoto(f); $("#s-prev").src = photoData; $("#s-prev").hidden = false; $("#s-photo-btn").textContent = "Retake photo"; }
+  catch{ photoData = null; sMsg("That photo couldn't be opened. Take it again.","bad"); }
+});
+function numIn(id){ const v = $(id).value.trim(); if(v === "") return null; const n = Number(v); return isFinite(n) && n >= 0 && n <= 1000 ? n : NaN; }
+$("#stockcard").addEventListener("submit", async e => {
+  e.preventDefault();
+  if(!stockFresh()){ sMsg("Scan the stock QR code by the fridge again, then save.","bad"); return; }
+  const type = $("#st-del").checked ? "delivery" : "check";
+  const when = $("#sw-start").checked ? "start" : "end";
+  const fridge = { sa:numIn("#f-sa"), glut:numIn("#f-glut") };
+  const bad = v => v === null || Number.isNaN(v);
+  if(bad(fridge.sa) || bad(fridge.glut)){ sMsg("Enter the fridge count for both items. Use 0 if there are none.","bad"); return; }
+  let arrived = null, noted = null;
+  if(type === "delivery"){
+    arrived = { sa:numIn("#a-sa"), glut:numIn("#a-glut") }; noted = { sa:numIn("#n-sa"), glut:numIn("#n-glut") };
+    if([arrived.sa, arrived.glut, noted.sa, noted.glut].some(bad)){ sMsg("Enter the delivery and shipping note numbers for both items. Use 0 if there are none.","bad"); return; }
+    if(!photoData){ sMsg("Take a photo of the shipping note before saving.","bad"); return; }
+  }
+  $("#s-save").disabled = true; sMsg("Checking your location…","warn");
+  const pos = await getPosition();
+  sMsg("Saving…","warn");
+  try{
+    const r = await api(Object.assign({ action:"stock", session, type, when, fridge, arrived, noted, photo: type === "delivery" ? photoData : null, comment: $("#s-note").value.trim(), deviceTime:new Date().toISOString() }, pos));
+    if(!r.ok){ if(r.code === "signin"){ saveSession(null); return showSignin(r.message); } sMsg(r.message || "Not saved. Try again.","bad"); return; }
+    ["#f-sa","#f-glut","#a-sa","#a-glut","#n-sa","#n-glut","#s-note"].forEach(id => $(id).value = "");
+    photoData = null; $("#s-prev").hidden = true; $("#s-photo").value = ""; $("#s-photo-btn").textContent = "Photo of shipping note";
+    $("#st-chk").checked = true; syncType(); clearStock(); render(r);
+    sMsg(r.message, r.flag ? "warn" : "ok"); $("#stockcard").hidden = false;
+  }catch{ sMsg("Not saved. Check your internet and tap Save again.","bad"); }
+  finally{ $("#s-save").disabled = false; }
+});
+
 $("#b-in").addEventListener("click", () => clock("in"));
 $("#b-out").addEventListener("click", () => clock("out"));
 $("#signout").addEventListener("click", () => { saveSession(null); try{ google.accounts.id.disableAutoSelect(); }catch{} showSignin(); });
